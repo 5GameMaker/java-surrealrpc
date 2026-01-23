@@ -31,7 +31,7 @@ class RpcClient extends WebSocketClient {
             payloadParams.add(param);
         }
         payload.set("params", payloadParams);
-        System.err.println(">> " + payload.toString());
+        // System.err.println(">> " + payload.toString());
         send(payload.toString());
     }
 
@@ -45,7 +45,7 @@ class RpcClient extends WebSocketClient {
 
     @Override
     public void onMessage(String message) {
-        System.err.println("<< " + message);
+        // System.err.println("<< " + message);
         Json json = Json.read(message);
 
         int id = json.at("id").asInteger();
