@@ -7,28 +7,19 @@ import net.buj.surreal.EventCallback;
 import net.buj.surreal.Query;
 import net.buj.surreal.Response;
 
+import static org.junit.Assume.assumeNotNull;
+
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class LibraryTest {
-    public static class SurrealUrlNotSpecifiedException extends RuntimeException {
-        public SurrealUrlNotSpecifiedException(String message) {
-            super(message);
-        }
-
-        public static String getSurrealUrl() {
-            String env = System.getenv("SURREAL_URL");
-            if (env == null)
-                throw new SurrealUrlNotSpecifiedException("SURREAL_URL must be set for tests to work");
-            return env;
-        }
-    }
-
-    public static String connectionUrl = SurrealUrlNotSpecifiedException.getSurrealUrl();
+    public static String connectionUrl = System.getenv("SURREAL_URL");
 
     @Test
     public void urlParseTest() throws Exception {
+        assumeNotNull(connectionUrl);
+
         Driver driver = new Driver(connectionUrl);
         CountDownLatch wait = new CountDownLatch(1);
         Exception[] error = new Exception[1];

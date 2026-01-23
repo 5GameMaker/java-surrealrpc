@@ -18,18 +18,51 @@ import net.buj.surreal.SurrealURL.RootAuthorization;
 import net.buj.surreal.SurrealURL.TokenAuthorization;
 
 /**
+ * SurrealDB driver.
+ * <p>
+ * SurrealRPC connects to SurrealDB over RPC.
+ * <p>
+ * SurrealDB driver is mostly asynchronous.
  */
 public class Driver implements AutoCloseable {
     private final List<EventCallback<Object>> connectedListeners = new ArrayList<>();
 
+    /**
+     * Create a new {@link Driver}.
+     *
+     * @param url SurrealRPC URL. See {@link SurrealURL}.
+     *
+     * @throws IOException          If connection to SurrealDB fails.
+     * @throws InvalidURLException  If not a valid SurrealRPC URL.
+     * @throws URISyntaxException   If not a valid URI.
+     * @throws InterruptedException If driver gets interrupted while connecting.
+     */
     public Driver(String url) throws InvalidURLException, URISyntaxException, IOException, InterruptedException {
         this(new SurrealURL(url));
     }
 
+    /**
+     * Create a new {@link Driver}.
+     *
+     * @param uri SurrealRPC URL. See {@link SurrealURL}.
+     *
+     * @throws IOException          If connection to SurrealDB fails.
+     * @throws InvalidURLException  If not a valid SurrealRPC URL.
+     * @throws URISyntaxException   If not a valid URI.
+     * @throws InterruptedException If driver gets interrupted while connecting.
+     */
     public Driver(URI uri) throws InvalidURLException, URISyntaxException, IOException, InterruptedException {
         this(new SurrealURL(uri));
     }
 
+    /**
+     * Create a new {@link Driver}.
+     *
+     * @param url SurrealRPC URL.
+     *
+     * @throws IOException          If connection to SurrealDB fails.
+     * @throws InterruptedException If driver gets interrupted while connecting.
+     */
     public Driver(SurrealURL url) throws IOException, InterruptedException {
         Objects.requireNonNull(url);
 
@@ -74,6 +107,7 @@ public class Driver implements AutoCloseable {
             public void run(Json value) {
                 client.request("use", new EventCallback<Json>() {
                     @Override
+                    @SuppressWarnings("unchecked")
                     public void run(Json value) {
                         synchronized (syncObject) {
                             Queue<Object[]> queue = overheadQueue;
@@ -88,17 +122,31 @@ public class Driver implements AutoCloseable {
                     }
 
                     @Override
+                    @SuppressWarnings("unchecked")
                     public void fail(Exception error) {
                         for (EventCallback<Object> listener : connectedListeners)
                             listener.fail(error);
+
+                        Queue<Object[]> queue = overheadQueue;
+                        overheadQueue = null;
+
+                        for (Object[] args : queue)
+                            ((EventCallback<Response[]>) args[1]).fail(error);
                     }
                 }, url.namespace, url.database);
             }
 
             @Override
+            @SuppressWarnings("unchecked")
             public void fail(Exception error) {
                 for (EventCallback<Object> listener : connectedListeners)
                     listener.fail(error);
+
+                Queue<Object[]> queue = overheadQueue;
+                overheadQueue = null;
+
+                for (Object[] args : queue)
+                    ((EventCallback<Response[]>) args[1]).fail(error);
             }
         }, token);
 
@@ -110,6 +158,16 @@ public class Driver implements AutoCloseable {
     private final Object syncObject = new Object();
     private Queue<Object[]> overheadQueue = new ArrayDeque<>(16);
 
+    /**
+     * Submit a query to SurrealDB.
+     * <p>
+     * Query will only execute once driver has successfully connected to
+     * the database. If connection fails - all query callbacks receive
+     * errors.
+     *
+     * @param query    A query to be executed.
+     * @param callback A callback to be executed after the execution of the query.
+     */
     public void query(Query query, EventCallback<Response[]> callback) {
         Objects.requireNonNull(query);
         Objects.requireNonNull(callback);
@@ -141,12 +199,23 @@ public class Driver implements AutoCloseable {
         }, query.sql, query.params);
     }
 
+    /**
+     * Add a connection callback.
+     *
+     * @param callback A callback to be executed after the database connection has
+     *                 been established.
+     */
     public void onConnect(EventCallback<Object> callback) {
         Objects.requireNonNull(callback);
 
         connectedListeners.add(callback);
     }
 
+    /**
+     * Close the client.
+     * <p>
+     * Closing the client is a blocking operation.
+     */
     @Override
     public void close() throws Exception {
         client.closeBlocking();
