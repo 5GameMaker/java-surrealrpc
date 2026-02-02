@@ -11,6 +11,7 @@ import mjson.Json;
 
 class RpcClient extends WebSocketClient {
     private List<EventCallback<Json>> callbacks = new ArrayList<>();
+    private final Driver driver;
 
     public void request(String method, EventCallback<Json> callback, Object... params) {
         int i = 0;
@@ -31,21 +32,30 @@ class RpcClient extends WebSocketClient {
             payloadParams.add(param);
         }
         payload.set("params", payloadParams);
-        // System.err.println(">> " + payload.toString());
-        send(payload.toString());
+
+        String stringPayload = payload.toString();
+        if (driver.debug != null)
+            driver.debug.rawMessageSend(stringPayload);
+        send(stringPayload);
     }
 
-    public RpcClient(URI serverUri) {
+    public RpcClient(Driver driver, URI serverUri) {
         super(serverUri);
+
+        this.driver = driver;
     }
 
     @Override
     public void onOpen(ServerHandshake handshakedata) {
+        if (driver.debug != null)
+            driver.debug.rpcOpen();
     }
 
     @Override
     public void onMessage(String message) {
-        // System.err.println("<< " + message);
+        if (driver.debug != null)
+            driver.debug.rawMessageRecv(message);
+
         Json json = Json.read(message);
 
         int id = json.at("id").asInteger();

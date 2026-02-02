@@ -8,6 +8,8 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
@@ -99,7 +101,7 @@ public class Driver implements AutoCloseable {
             throw new RuntimeException("Unreachable!");
         }
 
-        client = new RpcClient(url.rpcUri);
+        client = new RpcClient(this, url.rpcUri);
         client.connectBlocking(5, TimeUnit.SECONDS);
 
         client.request("authenticate", new EventCallback<Json>() {
@@ -149,8 +151,6 @@ public class Driver implements AutoCloseable {
                     ((EventCallback<Response[]>) args[1]).fail(error);
             }
         }, token);
-
-        System.out.println(token);
     }
 
     private final SurrealURL url;
@@ -162,7 +162,7 @@ public class Driver implements AutoCloseable {
      * Submit a query to SurrealDB.
      * <p>
      * Query will only execute once driver has successfully connected to
-     * the database. If connection fails - all query callbacks receive
+     * the database. If connection fails - all query callbacks will receive
      * errors.
      *
      * @param query    A query to be executed.
@@ -182,7 +182,7 @@ public class Driver implements AutoCloseable {
         client.request("query", new EventCallback<Json>() {
             @Override
             public void run(Json value) {
-                List<Json> list = value.asJsonList();
+                List<Json> list = value.isArray() ? value.asJsonList() : Collections.singletonList(value);
                 Response[] responses = new Response[list.size()];
                 for (int i = 0; i < list.size(); i++) {
                     Json json = list.get(i);
@@ -190,6 +190,50 @@ public class Driver implements AutoCloseable {
                             json.at("result"));
                 }
                 callback.run(responses);
+            }
+
+            @Override
+            public void fail(Exception error) {
+                callback.fail(error);
+            }
+        }, query.sql, query.params);
+    }
+
+    private static <T> T getLast(List<T> list) {
+        return list.get(list.size() - 1);
+    }
+
+    /**
+     * Submit a query with a single output to SurrealDB.
+     * <p>
+     * Query will only execute once driver has successfully connected to
+     * the database. If connection fails - all query callbacks will receive
+     * errors.
+     * <p>
+     * If multiple outputs are returned, only the last one will be forwarded
+     * to the handler. Throws a {@link IndexOutOfBoundsException} if there were
+     * no outputs.
+     *
+     * @param query    A query to be executed.
+     * @param callback A callback to be executed after the execution of the query.
+     */
+    public void querySingle(Query query, EventCallback<Response> callback) {
+        Objects.requireNonNull(query);
+        Objects.requireNonNull(callback);
+
+        synchronized (syncObject) {
+            if (overheadQueue != null) {
+                overheadQueue.add(new Object[] { query, callback });
+                return;
+            }
+        }
+
+        client.request("query", new EventCallback<Json>() {
+            @Override
+            public void run(Json value) {
+                Json json = value.isArray() ? getLast(value.asJsonList()) : value;
+                callback.run(new Response(json.at("status").asString(), json.at("time").asString(),
+                        json.at("result")));
             }
 
             @Override
@@ -220,4 +264,9 @@ public class Driver implements AutoCloseable {
     public void close() throws Exception {
         client.closeBlocking();
     }
+
+    /**
+     * Handler for debug messages for this driver.
+     */
+    public DebugHandler debug;
 }
