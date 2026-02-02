@@ -10,9 +10,13 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import mjson.Json;
@@ -67,8 +71,6 @@ public class Driver implements AutoCloseable {
      */
     public Driver(SurrealURL url) throws IOException, InterruptedException {
         Objects.requireNonNull(url);
-
-        this.url = url;
 
         String token;
         if (url.authorization instanceof TokenAuthorization) {
@@ -153,10 +155,63 @@ public class Driver implements AutoCloseable {
         }, token);
     }
 
-    private final SurrealURL url;
     private final RpcClient client;
-    private final Object syncObject = new Object();
+    final Object syncObject = new Object();
     private Queue<Object[]> overheadQueue = new ArrayDeque<>(16);
+    final Set<EventCallback<LiveResponse>> liveListeners = new HashSet<>();
+    final Map<String, EventCallback<LiveResponse>> sLiveListeners = new HashMap<>();
+
+    /**
+     * Handle a live query.
+     * 
+     * @param handle A handle for live responses.
+     */
+    public void onLive(EventCallback<LiveResponse> handle) {
+        synchronized (liveListeners) {
+            liveListeners.add(handle);
+        }
+    }
+
+    /**
+     * Handle a live query.
+     * <p>
+     * If this method is called multiple times with the same ID, the handle will be
+     * replaced with a new one.
+     * 
+     * @param id     ID to match against.
+     * @param handle A handle for live responses.
+     */
+    public void onLive(String id, EventCallback<LiveResponse> handle) {
+        synchronized (sLiveListeners) {
+            sLiveListeners.put(id, handle);
+        }
+    }
+
+    /**
+     * Remove a live query handler.
+     * 
+     * @param handle A handle for live responses.
+     */
+    public void offLive(EventCallback<LiveResponse> handle) {
+        synchronized (liveListeners) {
+            liveListeners.remove(handle);
+        }
+        synchronized (sLiveListeners) {
+            while (sLiveListeners.values().remove(handle)) {
+            }
+        }
+    }
+
+    /**
+     * Remove a live query handler.
+     * 
+     * @param id ID to remove a handler from.
+     */
+    public void offLive(String id) {
+        synchronized (sLiveListeners) {
+            sLiveListeners.remove(id);
+        }
+    }
 
     /**
      * Submit a query to SurrealDB.

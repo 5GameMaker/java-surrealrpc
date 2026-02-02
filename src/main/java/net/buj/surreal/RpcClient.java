@@ -2,7 +2,9 @@ package net.buj.surreal;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -39,8 +41,13 @@ class RpcClient extends WebSocketClient {
         send(stringPayload);
     }
 
+    private static Map<String, String> headers = new HashMap<>();
+    static {
+        headers.put("sec-websocket-protocol", "json");
+    }
+
     public RpcClient(Driver driver, URI serverUri) {
-        super(serverUri);
+        super(serverUri, headers);
 
         this.driver = driver;
     }
@@ -57,6 +64,36 @@ class RpcClient extends WebSocketClient {
             driver.debug.rawMessageRecv(message);
 
         Json json = Json.read(message);
+
+        if (!json.has("id")) {
+            json = json.at("result");
+
+            LiveResponse response = new LiveResponse(json.at("id").asString(), driver, json.at("action").asString(),
+                    json.at("result"));
+
+            synchronized (driver.liveListeners) {
+                for (EventCallback<LiveResponse> handle : driver.liveListeners) {
+                    try {
+                        handle.run(response);
+                    } catch (Exception e) {
+                        handle.fail(e);
+                    }
+                }
+            }
+
+            synchronized (driver.sLiveListeners) {
+                EventCallback<LiveResponse> handle = driver.sLiveListeners.get("id");
+                if (handle != null) {
+                    try {
+                        handle.run(response);
+                    } catch (Exception e) {
+                        handle.fail(e);
+                    }
+                }
+            }
+
+            return;
+        }
 
         int id = json.at("id").asInteger();
         EventCallback<Json> callback = callbacks.get(id);
