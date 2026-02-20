@@ -71,8 +71,9 @@ class RpcClient extends WebSocketClient {
             LiveResponse response = new LiveResponse(json.at("id").asString(), driver, json.at("action").asString(),
                     json.at("result"));
 
-            synchronized (driver.liveListeners) {
-                for (EventCallback<LiveResponse> handle : driver.liveListeners) {
+            synchronized (driver.sLiveListeners) {
+                EventCallback<LiveResponse> handle = driver.sLiveListeners.get(response.id);
+                if (handle != null) {
                     try {
                         handle.run(response);
                     } catch (Exception e) {
@@ -81,9 +82,8 @@ class RpcClient extends WebSocketClient {
                 }
             }
 
-            synchronized (driver.sLiveListeners) {
-                EventCallback<LiveResponse> handle = driver.sLiveListeners.get("id");
-                if (handle != null) {
+            synchronized (driver.liveListeners) {
+                for (EventCallback<LiveResponse> handle : driver.liveListeners) {
                     try {
                         handle.run(response);
                     } catch (Exception e) {
